@@ -9,11 +9,14 @@ Documentation: https://github.com/paperclipai/paperclip
 MCP spec:      https://modelcontextprotocol.io
 
 Configuration (environment variables):
-    PAPERCLIP_API_KEY      Required. Agent API key — generate in Paperclip UI:
-                           Settings → API Keys → New Key.
-    PAPERCLIP_COMPANY_ID   Required. Company UUID shown in the Paperclip UI URL
-                           when viewing your company: /companies/{uuid}.
-    PAPERCLIP_BASE_URL     Optional. Default: http://localhost:3100/api
+    Authentication — provide ONE of:
+      PAPERCLIP_API_KEY        Bearer API key (Settings → API Keys → New Key).
+      PAPERCLIP_SESSION_TOKEN  Value of `__Secure-better-auth.session_token` cookie
+                               from a logged-in browser session (DevTools →
+                               Application → Cookies → copy value).
+
+    PAPERCLIP_COMPANY_ID       Required. Company UUID from the Paperclip UI URL.
+    PAPERCLIP_BASE_URL         Optional. Default: http://localhost:3100/api
 """
 
 from __future__ import annotations
@@ -37,9 +40,11 @@ try:
 except ImportError:
     pass  # python-dotenv is optional; env vars can be set by the shell
 
-BASE_URL: str = os.environ.get("PAPERCLIP_BASE_URL", "http://localhost:3100/api").rstrip("/")
-API_KEY: str  = os.environ.get("PAPERCLIP_API_KEY", "")
-COMPANY: str  = os.environ.get("PAPERCLIP_COMPANY_ID", "")
+BASE_URL: str      = os.environ.get("PAPERCLIP_BASE_URL", "http://localhost:3100/api").rstrip("/")
+API_KEY: str       = os.environ.get("PAPERCLIP_API_KEY", "")
+SESSION_TOKEN: str = os.environ.get("PAPERCLIP_SESSION_TOKEN", "")
+COMPANY: str       = os.environ.get("PAPERCLIP_COMPANY_ID", "")
+_COOKIE_NAME       = "__Secure-better-auth.session_token"
 
 # ── Logging ────────────────────────────────────────────────────────────────────
 
@@ -57,12 +62,20 @@ _HTTP_TIMEOUT = 30  # seconds
 
 
 def _headers() -> dict[str, str]:
-    """Build per-request headers.  X-Paperclip-Run-Id is a unique trace ID."""
-    return {
-        "Authorization": f"Bearer {API_KEY}",
+    """Build per-request headers.  X-Paperclip-Run-Id is a unique trace ID.
+
+    Auth precedence: API key (Bearer) > session token (Cookie).
+    """
+    headers: dict[str, str] = {
         "Content-Type": "application/json",
+        "Accept": "*/*",
         "X-Paperclip-Run-Id": str(uuid.uuid4()),
     }
+    if API_KEY:
+        headers["Authorization"] = f"Bearer {API_KEY}"
+    elif SESSION_TOKEN:
+        headers["Cookie"] = f"{_COOKIE_NAME}={SESSION_TOKEN}"
+    return headers
 
 
 def _err(message: str, status: int | None = None) -> dict[str, Any]:
@@ -134,16 +147,13 @@ async def _delete(path: str) -> Any:
 
 def _validate_config() -> None:
     """Fail fast with actionable error messages if required env vars are missing."""
-    missing = [k for k, v in {
-        "PAPERCLIP_API_KEY": API_KEY,
-        "PAPERCLIP_COMPANY_ID": COMPANY,
-    }.items() if not v]
-    if missing:
-        log.error("Missing required environment variables: %s", ", ".join(missing))
+    if not COMPANY:
+        log.error("Missing required environment variable: PAPERCLIP_COMPANY_ID")
+        sys.exit(1)
+    if not API_KEY and not SESSION_TOKEN:
         log.error(
-            "Copy .env.example to .env, fill in the values, then:\n"
-            "  source .env && python -m paperclip_mcp\n"
-            "Or set them in your shell before starting the server."
+            "Missing authentication: set either PAPERCLIP_API_KEY (Bearer) "
+            "or PAPERCLIP_SESSION_TOKEN (better-auth cookie)."
         )
         sys.exit(1)
 

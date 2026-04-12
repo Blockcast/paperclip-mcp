@@ -22,53 +22,69 @@ Exposes Paperclip's REST API as [Model Context Protocol](https://modelcontextpro
 
 - Python 3.10+
 - A running [Paperclip](https://github.com/paperclipai/paperclip) instance
-- An Agent API key (generated in Paperclip UI → Settings → API Keys)
+- Authentication — **one of**:
+  - An Agent API key (Paperclip UI → Settings → API Keys), **or**
+  - A browser session token (`__Secure-better-auth.session_token` cookie)
 
 ---
 
 ## Installation
 
-### Option A — pip / uv (recommended)
+### Option A — `uvx` (zero-install, recommended)
+
+No install step needed. [`uvx`](https://docs.astral.sh/uv/) fetches and runs the latest published release on demand:
 
 ```bash
-# Clone the repo
-git clone https://github.com/wizarck/paperclip-mcp
-cd paperclip-mcp
-
-# Install (editable for local use, or drop -e for production)
-pip install -e .
-# or
-uv pip install -e .
+uvx paperclip-mcp --transport stdio
 ```
 
-### Option B — Run directly without installing
+### Option B — pip / uv
 
 ```bash
-pip install fastmcp httpx python-dotenv
-python src/paperclip_mcp/server.py
+pip install paperclip-mcp
+# or
+uv pip install paperclip-mcp
+```
+
+### Option C — from source
+
+```bash
+git clone https://github.com/elevateinformatics/paperclip-mcp
+cd paperclip-mcp
+pip install -e .
 ```
 
 ---
 
 ## Configuration
 
-Copy `.env.example` to `.env` and fill in your values:
+### Environment variables
 
-```bash
-cp .env.example .env
-```
+| Variable | Required | Description |
+|---|---|---|
+| `PAPERCLIP_COMPANY_ID` | ✅ | Company UUID from the Paperclip URL |
+| `PAPERCLIP_API_KEY` | ⚠️ one-of | Bearer API key (Settings → API Keys → New Key) |
+| `PAPERCLIP_SESSION_TOKEN` | ⚠️ one-of | Value of `__Secure-better-auth.session_token` cookie |
+| `PAPERCLIP_BASE_URL` | ❌ | Defaults to `http://localhost:3100/api` |
+
+Provide **either** `PAPERCLIP_API_KEY` (preferred for production) **or** `PAPERCLIP_SESSION_TOKEN` (useful when API keys are not available — uses your logged-in browser session).
+
+### How to get a session token
+
+1. Log in to Paperclip in Chrome/Edge
+2. DevTools → Application → Cookies → pick your Paperclip domain
+3. Copy the value of `__Secure-better-auth.session_token`
+
+> **Security**: Session tokens grant full access to your user account. Treat them like passwords — never commit `.env` or share the value. They also expire and must be refreshed periodically.
+
+### `.env` file (local dev)
 
 ```dotenv
-PAPERCLIP_BASE_URL=http://localhost:3100/api   # default, change if needed
-PAPERCLIP_API_KEY=your_api_key_here
-PAPERCLIP_COMPANY_ID=your_company_uuid_here
+PAPERCLIP_BASE_URL=https://elevate-ai.up.railway.app/api
+PAPERCLIP_COMPANY_ID=your_company_uuid
+PAPERCLIP_API_KEY=your_api_key            # OR
+PAPERCLIP_SESSION_TOKEN=your_session_cookie_value
 ```
-
-> **Security**: Never commit `.env` to version control. It is listed in `.gitignore`.
-
-**Where to find these values:**
-- `PAPERCLIP_API_KEY` — Paperclip UI → Settings → API Keys → New Key
-- `PAPERCLIP_COMPANY_ID` — visible in the URL when viewing your company: `/companies/{uuid}`
 
 ---
 
@@ -101,18 +117,31 @@ claude mcp add paperclip --transport http http://localhost:9011/mcp
 
 #### Claude Desktop (`claude_desktop_config.json`)
 
+Using `uvx` (no install required):
+
 ```json
 {
   "mcpServers": {
     "paperclip": {
-      "command": "paperclip-mcp",
-      "args": ["--transport", "stdio"],
+      "command": "uvx",
+      "args": ["paperclip-mcp@latest", "--transport", "stdio"],
       "env": {
-        "PAPERCLIP_API_KEY": "your_api_key",
-        "PAPERCLIP_COMPANY_ID": "your_company_uuid"
+        "PAPERCLIP_BASE_URL": "https://your-paperclip.example.com/api",
+        "PAPERCLIP_COMPANY_ID": "your_company_uuid",
+        "PAPERCLIP_API_KEY": "your_api_key"
       }
     }
   }
+}
+```
+
+Or with a session token instead of an API key:
+
+```json
+"env": {
+  "PAPERCLIP_BASE_URL": "https://your-paperclip.example.com/api",
+  "PAPERCLIP_COMPANY_ID": "your_company_uuid",
+  "PAPERCLIP_SESSION_TOKEN": "your_session_cookie_value"
 }
 ```
 
@@ -178,7 +207,7 @@ pytest
 - **Do agents need this MCP?**: No — Paperclip agents already interact with the REST API directly via HTTP in their HEARTBEAT protocol. This MCP is for the human operator layer.
 - **Hermes agents**: If you switch to [Hermes](https://github.com/NousResearch/hermes-paperclip-adapter), this MCP is automatically available since Hermes supports MCP natively.
 - **Transport choice**: Use `streamable-http` for Claude Code and mcp-proxy integrations. Use `stdio` for Claude Desktop.
-- **Security**: The server binds to `127.0.0.1` by default (localhost only). Do not expose it publicly — it carries your Paperclip API key.
+- **Security**: The server binds to `127.0.0.1` by default (localhost only). Do not expose it publicly — it carries your Paperclip credentials.
 
 ---
 
