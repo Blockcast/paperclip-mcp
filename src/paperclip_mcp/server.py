@@ -544,10 +544,17 @@ def main() -> None:
     """CLI entry point — invoked via `paperclip-mcp` or `python -m paperclip_mcp`."""
     import argparse
 
+    from paperclip_mcp import __version__
+
     parser = argparse.ArgumentParser(
         prog="paperclip-mcp",
         description="MCP server for the Paperclip AI agent orchestration platform.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    parser.add_argument(
+        "--version",
+        action="version",
+        version=f"paperclip-mcp {__version__}",
     )
     parser.add_argument(
         "--host",
