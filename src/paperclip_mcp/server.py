@@ -22,6 +22,7 @@ import logging
 import os
 import sys
 import uuid
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any
 
@@ -148,7 +149,7 @@ def _validate_config() -> None:
 
 
 @asynccontextmanager
-async def _lifespan(_server: FastMCP):  # type: ignore[type-arg]
+async def _lifespan(_server: FastMCP) -> AsyncIterator[None]:
     _validate_config()
     log.info("paperclip-mcp started — base: %s | company: %s", BASE_URL, COMPANY)
     yield
@@ -229,7 +230,8 @@ async def create_issue(
         description: Full instructions or context for the agent (Markdown supported).
         assignee_agent_id: UUID of the agent to assign. Leave empty to leave unassigned.
         project_id: UUID of the project this issue belongs to. Leave empty for no project.
-        parent_issue_id: UUID of the parent issue when creating a subtask. Leave empty for top-level.
+        parent_issue_id: UUID of the parent issue when creating a subtask.
+            Leave empty for top-level.
         priority: Task priority — urgent, high, medium, or low. Default: medium.
     """
     body: dict[str, Any] = {"title": title, "priority": priority}
@@ -271,7 +273,10 @@ async def update_issue(
         body["description"] = description
     if status:
         if status not in {"todo", "in_progress", "blocked", "done", "cancelled"}:
-            return _err(f"Invalid status '{status}'. Allowed: todo, in_progress, blocked, done, cancelled.")
+            return _err(
+                f"Invalid status '{status}'. "
+                "Allowed: todo, in_progress, blocked, done, cancelled."
+            )
         body["status"] = status
     if assignee_agent_id:
         body["assigneeAgentId"] = assignee_agent_id
@@ -280,7 +285,10 @@ async def update_issue(
             return _err(f"Invalid priority '{priority}'. Allowed: urgent, high, medium, low.")
         body["priority"] = priority
     if not body:
-        return _err("No fields to update. Provide at least one of: title, description, status, assignee_agent_id, priority.")
+        return _err(
+            "No fields to update. Provide at least one of: "
+            "title, description, status, assignee_agent_id, priority."
+        )
     return await _patch(f"/issues/{issue_id}", body)
 
 
