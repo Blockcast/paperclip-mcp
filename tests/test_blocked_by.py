@@ -17,11 +17,16 @@ def _capture(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     calls: dict[str, Any] = {}
 
     async def fake_request(
-        method: str, path: str, params: Any = None, body: Any = None
+        method: str,
+        path: str,
+        params: Any = None,
+        body: Any = None,
+        company_id: str = "",
     ) -> Any:
         calls["method"] = method
         calls["path"] = path
         calls["body"] = body
+        calls["company_id"] = company_id
         return {"ok": True}
 
     monkeypatch.setattr(server, "_request", fake_request)

@@ -78,7 +78,7 @@ def _inbound_authorization() -> str:
     return get_http_headers(include={"authorization"}).get("authorization", "").strip()
 
 
-def _headers() -> dict[str, str]:
+def _headers(company_id: str = "") -> dict[str, str]:
     """Build per-request headers.  X-Paperclip-Run-Id is a unique trace ID.
 
     Auth precedence: inbound per-user bearer > baked API key (Bearer) > baked
@@ -101,6 +101,8 @@ def _headers() -> dict[str, str]:
         headers["Authorization"] = f"Bearer {API_KEY}"
     elif SESSION_TOKEN:
         headers["Cookie"] = f"{_COOKIE_NAME}={SESSION_TOKEN}"
+    if company_id.strip():
+        headers["X-Paperclip-Company"] = _company(company_id)
     return headers
 
 
@@ -128,6 +130,7 @@ async def _request(
     *,
     params: dict[str, Any] | None = None,
     body: dict[str, Any] | None = None,
+    company_id: str = "",
 ) -> Any:
     url = f"{BASE_URL}{path}"
     try:
@@ -135,7 +138,7 @@ async def _request(
             r = await client.request(
                 method,
                 url,
-                headers=_headers(),
+                headers=_headers(company_id),
                 params=params,
                 json=body,
             )
@@ -163,16 +166,26 @@ async def _request(
         )
 
 
-async def _get(path: str, params: dict[str, Any] | None = None) -> Any:
-    return await _request("GET", path, params=params)
+async def _get(
+    path: str,
+    params: dict[str, Any] | None = None,
+    *,
+    company_id: str = "",
+) -> Any:
+    return await _request("GET", path, params=params, company_id=company_id)
 
 
-async def _post(path: str, body: dict[str, Any] | None = None) -> Any:
-    return await _request("POST", path, body=body)
+async def _post(
+    path: str,
+    body: dict[str, Any] | None = None,
+    *,
+    company_id: str = "",
+) -> Any:
+    return await _request("POST", path, body=body, company_id=company_id)
 
 
-async def _patch(path: str, body: dict[str, Any]) -> Any:
-    return await _request("PATCH", path, body=body)
+async def _patch(path: str, body: dict[str, Any], *, company_id: str = "") -> Any:
+    return await _request("PATCH", path, body=body, company_id=company_id)
 
 
 async def _delete(path: str) -> Any:
@@ -222,8 +235,8 @@ mcp = FastMCP(
         "key to its issue and company server-side, so they work across companies "
         "with no reconfiguration — you can read or comment on PEN-307 even when "
         "the default company is Blockcast. Company-scoped tools (list_issues, "
-        "create_issue, list_goals, create_goal, list_agents, list_approvals, "
-        "get_dashboard, get_cost_summary, list_activity) default to "
+        "create_issue, list_projects, create_project, list_goals, create_goal, "
+        "list_agents, list_approvals, get_dashboard, get_cost_summary, list_activity) default to "
         "PAPERCLIP_COMPANY_ID; pass their optional company_id argument to target "
         "a different company by context."
     ),
@@ -262,7 +275,8 @@ async def list_issues(
         params["projectId"] = project_id
     if label:
         params["label"] = label
-    return await _get(f"/companies/{_company(company_id)}/issues", params)
+    company = _company(company_id)
+    return await _get(f"/companies/{company}/issues", params, company_id=company)
 
 
 @mcp.tool()
@@ -324,7 +338,8 @@ async def create_issue(
         body["parentIssueId"] = parent_issue_id
     if blocked_by_issue_ids is not None:
         body["blockedByIssueIds"] = blocked_by_issue_ids
-    return await _post(f"/companies/{_company(company_id)}/issues", body)
+    company = _company(company_id)
+    return await _post(f"/companies/{company}/issues", body, company_id=company)
 
 
 @mcp.tool()
@@ -335,6 +350,8 @@ async def update_issue(
     status: str = "",
     assignee_agent_id: str = "",
     priority: str = "",
+    project_id: str | None = None,
+    company_id: str = "",
     blocked_by_issue_ids: list[str] | None = None,
 ) -> Any:
     """Update an existing issue. Only fields you provide are changed.
@@ -347,6 +364,10 @@ async def update_issue(
                 Leave empty to keep current.
         assignee_agent_id: New agent UUID. Leave empty to keep current assignee.
         priority: New priority — urgent, high, medium, or low. Leave empty to keep current.
+        project_id: New project UUID, or an empty string to remove from a project.
+            Leave omitted to keep current project assignment.
+        company_id: Target a specific company by context. Leave empty to rely on
+            issue-key routing and the authenticated caller.
         blocked_by_issue_ids: Full set of blocker issue UUIDs (this issue is blocked
             by them). Pass the COMPLETE desired set — it REPLACES the existing
             blockers; pass [] to clear; leave as null to keep them unchanged.
@@ -372,14 +393,17 @@ async def update_issue(
         if priority not in {"urgent", "high", "medium", "low"}:
             return _err(f"Invalid priority '{priority}'. Allowed: urgent, high, medium, low.")
         body["priority"] = priority
+    if project_id is not None:
+        body["projectId"] = project_id or None
     if blocked_by_issue_ids is not None:
         body["blockedByIssueIds"] = blocked_by_issue_ids
     if not body:
         return _err(
             "No fields to update. Provide at least one of: "
-            "title, description, status, assignee_agent_id, priority, blocked_by_issue_ids."
+            "title, description, status, assignee_agent_id, priority, project_id, "
+            "blocked_by_issue_ids."
         )
-    return await _patch(f"/issues/{issue_id}", body)
+    return await _patch(f"/issues/{issue_id}", body, company_id=company_id)
 
 
 @mcp.tool()
@@ -448,7 +472,8 @@ async def list_agents(company_id: str = "") -> Any:
         company_id: Target a specific company by context. Leave empty to use the
                     default company (PAPERCLIP_COMPANY_ID).
     """
-    return await _get(f"/companies/{_company(company_id)}/agents")
+    company = _company(company_id)
+    return await _get(f"/companies/{company}/agents", company_id=company)
 
 
 @mcp.tool()
@@ -476,17 +501,152 @@ async def invoke_agent_heartbeat(agent_id: str) -> Any:
     return await _post(f"/agents/{agent_id}/heartbeat/invoke")
 
 
-# ── GOALS ──────────────────────────────────────────────────────────────────────
+# ── PROJECTS ───────────────────────────────────────────────────────────────────
 
 @mcp.tool()
-async def list_goals(company_id: str = "") -> Any:
-    """List all strategic goals and projects for a company.
+async def list_projects(company_id: str = "") -> Any:
+    """List projects in a company.
 
     Args:
         company_id: Target a specific company by context. Leave empty to use the
                     default company (PAPERCLIP_COMPANY_ID).
     """
-    return await _get(f"/companies/{_company(company_id)}/goals")
+    company = _company(company_id)
+    return await _get(f"/companies/{company}/projects", company_id=company)
+
+
+@mcp.tool()
+async def get_project(project_id: str, company_id: str = "") -> Any:
+    """Get a project by UUID or company-scoped short reference.
+
+    Args:
+        project_id: Project UUID or company-scoped project reference.
+        company_id: Target a specific company by context. Leave empty to use the
+                    default company (PAPERCLIP_COMPANY_ID).
+    """
+    company = _company(company_id)
+    params = {"companyId": company} if company else None
+    return await _get(f"/projects/{project_id}", params, company_id=company)
+
+
+@mcp.tool()
+async def create_project(
+    name: str,
+    description: str = "",
+    status: str = "backlog",
+    goal_id: str = "",
+    goal_ids: list[str] | None = None,
+    lead_agent_id: str = "",
+    target_date: str = "",
+    color: str = "",
+    company_id: str = "",
+) -> Any:
+    """Create a project in a company.
+
+    Args:
+        name: Project name.
+        description: Project description. Leave empty for none.
+        status: Project status. Default: backlog.
+        goal_id: Deprecated default goal UUID. Prefer goal_ids when linking goals.
+        goal_ids: Goal UUIDs to link to the project.
+        lead_agent_id: UUID of the lead agent. Leave empty for none.
+        target_date: Target date string. Leave empty for none.
+        color: Project color. Leave empty for default.
+        company_id: Target a specific company by context. Leave empty to use the
+                    default company (PAPERCLIP_COMPANY_ID).
+    """
+    allowed = {"backlog", "planned", "in_progress", "completed", "cancelled"}
+    if status and status not in allowed:
+        return _err(f"Invalid status '{status}'. Allowed: {', '.join(sorted(allowed))}.")
+
+    body: dict[str, Any] = {"name": name, "status": status or "backlog"}
+    if description:
+        body["description"] = description
+    if goal_id:
+        body["goalId"] = goal_id
+    if goal_ids is not None:
+        body["goalIds"] = goal_ids
+    if lead_agent_id:
+        body["leadAgentId"] = lead_agent_id
+    if target_date:
+        body["targetDate"] = target_date
+    if color:
+        body["color"] = color
+
+    company = _company(company_id)
+    return await _post(f"/companies/{company}/projects", body, company_id=company)
+
+
+@mcp.tool()
+async def update_project(
+    project_id: str,
+    name: str = "",
+    description: str | None = None,
+    status: str = "",
+    goal_id: str | None = None,
+    goal_ids: list[str] | None = None,
+    lead_agent_id: str | None = None,
+    target_date: str | None = None,
+    color: str | None = None,
+    company_id: str = "",
+) -> Any:
+    """Update a project. Only fields you provide are changed.
+
+    Args:
+        project_id: Project UUID or company-scoped project reference.
+        name: New project name. Leave empty to keep current.
+        description: New description, or an empty string to clear. Leave omitted to keep current.
+        status: New project status. Leave empty to keep current.
+        goal_id: Deprecated default goal UUID, or an empty string to clear.
+        goal_ids: Full set of linked goal UUIDs.
+        lead_agent_id: New lead agent UUID, or an empty string to clear.
+        target_date: New target date, or an empty string to clear.
+        color: New project color, or an empty string to clear.
+        company_id: Target a specific company by context. Leave empty to use the
+                    default company (PAPERCLIP_COMPANY_ID).
+    """
+    body: dict[str, Any] = {}
+    if name:
+        body["name"] = name
+    if description is not None:
+        body["description"] = description or None
+    if status:
+        allowed = {"backlog", "planned", "in_progress", "completed", "cancelled"}
+        if status not in allowed:
+            return _err(f"Invalid status '{status}'. Allowed: {', '.join(sorted(allowed))}.")
+        body["status"] = status
+    if goal_id is not None:
+        body["goalId"] = goal_id or None
+    if goal_ids is not None:
+        body["goalIds"] = goal_ids
+    if lead_agent_id is not None:
+        body["leadAgentId"] = lead_agent_id or None
+    if target_date is not None:
+        body["targetDate"] = target_date or None
+    if color is not None:
+        body["color"] = color or None
+    if not body:
+        return _err(
+            "No fields to update. Provide at least one of: name, description, "
+            "status, goal_id, goal_ids, lead_agent_id, target_date, color."
+        )
+
+    company = _company(company_id)
+    return await _patch(f"/projects/{project_id}", body, company_id=company)
+
+
+# ── GOALS ──────────────────────────────────────────────────────────────────────
+
+@mcp.tool()
+async def list_goals(company_id: str = "") -> Any:
+    """List all strategic goals for a company. Use list_projects for projects.
+
+    Args:
+        company_id: Target a specific company by context. Leave empty to use the
+                    default company (PAPERCLIP_COMPANY_ID).
+    """
+    company = _company(company_id)
+    return await _get(f"/companies/{company}/goals", company_id=company)
 
 
 @mcp.tool()
@@ -505,7 +665,8 @@ async def create_goal(title: str, description: str = "", company_id: str = "") -
     body: dict[str, Any] = {"title": title}
     if description:
         body["description"] = description
-    return await _post(f"/companies/{_company(company_id)}/goals", body)
+    company = _company(company_id)
+    return await _post(f"/companies/{company}/goals", body, company_id=company)
 
 
 @mcp.tool()
@@ -547,7 +708,8 @@ async def list_approvals(status: str = "pending", company_id: str = "") -> Any:
     allowed = {"pending", "approved", "rejected", "revision_requested"}
     if status not in allowed:
         return _err(f"Invalid status '{status}'. Allowed: {', '.join(sorted(allowed))}.")
-    return await _get(f"/companies/{_company(company_id)}/approvals", {"status": status})
+    company = _company(company_id)
+    return await _get(f"/companies/{company}/approvals", {"status": status}, company_id=company)
 
 
 @mcp.tool()
@@ -606,7 +768,8 @@ async def get_cost_summary(company_id: str = "") -> Any:
         company_id: Target a specific company by context. Leave empty to use the
                     default company (PAPERCLIP_COMPANY_ID).
     """
-    return await _get(f"/companies/{_company(company_id)}/costs/summary")
+    company = _company(company_id)
+    return await _get(f"/companies/{company}/costs/summary", company_id=company)
 
 
 @mcp.tool()
@@ -620,7 +783,8 @@ async def get_dashboard(company_id: str = "") -> Any:
         company_id: Target a specific company by context. Leave empty to use the
                     default company (PAPERCLIP_COMPANY_ID).
     """
-    return await _get(f"/companies/{_company(company_id)}/dashboard")
+    company = _company(company_id)
+    return await _get(f"/companies/{company}/dashboard", company_id=company)
 
 
 @mcp.tool()
@@ -640,7 +804,8 @@ async def list_activity(
     params: dict[str, Any] = {"limit": max(1, min(limit, 100))}
     if agent_id:
         params["agentId"] = agent_id
-    return await _get(f"/companies/{_company(company_id)}/activity", params)
+    company = _company(company_id)
+    return await _get(f"/companies/{company}/activity", params, company_id=company)
 
 
 # ── ENTRY POINT ────────────────────────────────────────────────────────────────
