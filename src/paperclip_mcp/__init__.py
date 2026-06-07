@@ -1,3 +1,3 @@
 """paperclip-mcp — MCP server for the Paperclip AI agent orchestration platform."""
 
-__version__ = "0.2.2"
+__version__ = "0.2.3"

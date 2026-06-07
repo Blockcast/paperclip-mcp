@@ -290,6 +290,7 @@ async def create_issue(
     parent_issue_id: str = "",
     priority: str = "medium",
     company_id: str = "",
+    blocked_by_issue_ids: list[str] | None = None,
 ) -> Any:
     """Create a new Paperclip issue (task) and optionally assign it to an agent.
 
@@ -307,6 +308,10 @@ async def create_issue(
         priority: Task priority — urgent, high, medium, or low. Default: medium.
         company_id: Create the issue in a specific company by context. Leave empty
                     to use the default company (PAPERCLIP_COMPANY_ID).
+        blocked_by_issue_ids: UUIDs of issues that block this one (this issue is
+            blocked by them). WRITE-ONLY: reads back null — verify via the hydrated
+            `blockedBy`/`blocks` arrays, not by re-reading this field. Blockers must
+            be in the SAME company as the issue (a cross-company id → HTTP 422).
     """
     body: dict[str, Any] = {"title": title, "priority": priority}
     if description:
@@ -317,6 +322,8 @@ async def create_issue(
         body["projectId"] = project_id
     if parent_issue_id:
         body["parentIssueId"] = parent_issue_id
+    if blocked_by_issue_ids is not None:
+        body["blockedByIssueIds"] = blocked_by_issue_ids
     return await _post(f"/companies/{_company(company_id)}/issues", body)
 
 
@@ -328,6 +335,7 @@ async def update_issue(
     status: str = "",
     assignee_agent_id: str = "",
     priority: str = "",
+    blocked_by_issue_ids: list[str] | None = None,
 ) -> Any:
     """Update an existing issue. Only fields you provide are changed.
 
@@ -339,6 +347,12 @@ async def update_issue(
                 Leave empty to keep current.
         assignee_agent_id: New agent UUID. Leave empty to keep current assignee.
         priority: New priority — urgent, high, medium, or low. Leave empty to keep current.
+        blocked_by_issue_ids: Full set of blocker issue UUIDs (this issue is blocked
+            by them). Pass the COMPLETE desired set — it REPLACES the existing
+            blockers; pass [] to clear; leave as null to keep them unchanged.
+            WRITE-ONLY: reads back null — verify via the hydrated `blockedBy`/`blocks`
+            arrays, not by re-reading this field. Blockers must be in the SAME company
+            as the issue (a cross-company id → HTTP 422); a cycle → HTTP 422.
     """
     body: dict[str, Any] = {}
     if title:
@@ -358,10 +372,12 @@ async def update_issue(
         if priority not in {"urgent", "high", "medium", "low"}:
             return _err(f"Invalid priority '{priority}'. Allowed: urgent, high, medium, low.")
         body["priority"] = priority
+    if blocked_by_issue_ids is not None:
+        body["blockedByIssueIds"] = blocked_by_issue_ids
     if not body:
         return _err(
             "No fields to update. Provide at least one of: "
-            "title, description, status, assignee_agent_id, priority."
+            "title, description, status, assignee_agent_id, priority, blocked_by_issue_ids."
         )
     return await _patch(f"/issues/{issue_id}", body)
 
