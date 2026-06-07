@@ -78,3 +78,9 @@ def test_company_defaults_to_configured() -> None:
 def test_company_override_wins() -> None:
     assert server._company("other-co") == "other-co"
     assert server._company("  other-co  ") == "other-co"
+
+
+def test_company_header_when_explicit(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(server, "API_KEY", "baked-agent-key")
+    _stub_inbound(monkeypatch, {})
+    assert server._headers("other-co")["X-Paperclip-Company"] == "other-co"

@@ -2,7 +2,7 @@
 
 MCP server for the [Paperclip](https://github.com/paperclipai/paperclip) AI agent orchestration platform.
 
-Exposes Paperclip's REST API as [Model Context Protocol](https://modelcontextprotocol.io) tools, so any MCP-compatible AI assistant (Claude, etc.) can manage issues, agents, goals, approvals, and costs through natural language.
+Exposes Paperclip's REST API as [Model Context Protocol](https://modelcontextprotocol.io) tools, so any MCP-compatible AI assistant (Claude, etc.) can manage issues, projects, agents, goals, approvals, and costs through natural language.
 
 ---
 
@@ -11,6 +11,7 @@ Exposes Paperclip's REST API as [Model Context Protocol](https://modelcontextpro
 | Category | Tools |
 |---|---|
 | **Issues** | `list_issues` · `get_issue` · `create_issue` · `update_issue` · `checkout_issue` · `release_issue` · `comment_on_issue` · `delete_issue` |
+| **Projects** | `list_projects` · `get_project` · `create_project` · `update_project` |
 | **Agents** | `list_agents` · `get_agent` · `invoke_agent_heartbeat` |
 | **Goals** | `list_goals` · `create_goal` · `update_goal` |
 | **Approvals** | `list_approvals` · `approve` · `reject` · `request_approval_revision` |
